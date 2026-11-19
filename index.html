@@ -53,7 +53,7 @@ label{display:flex;gap:8px;align-items:center;font-size:.92rem;color:var(--mut)}
   <div><b id="rG">–</b><span>Global</span></div>
 </div>
 <p class="sub" id="detail" style="margin-top:10px"></p>
-<p class="sub" style="font-size:.75rem;opacity:.7">Version du 19 novembre 2026 · lissage vibrato + octaves</p>
+<p class="sub" style="font-size:.75rem;opacity:.7">Version du 19 novembre 2026 · lissage vibrato + octaves (v2)</p>
 <script>
 const $=s=>document.querySelector(s), DT=0.05, W=2;
 const NOTES=[["Do",0],["Ré",2],["Mi",4],["Fa",5],["Sol",7],["La",9],["Si",11]];
@@ -143,6 +143,8 @@ function clean(p){
       if(w.length<8)continue;
       w.sort((a,b)=>a-b);const med=w[w.length>>1];
       if(Math.abs(m[i]-med)<=4)continue;
+      let near=0;for(const v of w)if(Math.abs(v-m[i])<3)near++;
+      if(near>=0.35*w.length)continue;
       let best=null,bd=3;
       for(const k of [-24,-19,-12,12,19,24]){const d=Math.abs(m[i]+k-med);if(d<bd){bd=d;best=k}}
       if(best!=null)f[i]=m[i]+best;
@@ -157,7 +159,7 @@ function clean(p){
       if(Math.abs(d)>5){
         const k=Math.round(d/12);
         if(k&&Math.abs(d-12*k)<2.5)m[i]-=12*k;
-        else if(Math.abs(d)>7)continue;
+        
       }
     }
     prev=m[i];pi=i;
@@ -167,19 +169,19 @@ function clean(p){
     if(m[i]==null)continue;
     const w=[];
     for(let j=Math.max(0,i-3);j<=Math.min(n-1,i+3);j++)if(m[j]!=null)w.push(m[j]);
-    if(w.length<3){o[i]=null;continue}
+    if(w.length<2){o[i]=null;continue}
     w.sort((a,b)=>a-b);o[i]=w[w.length>>1];
   }
   let s=0;
   for(let i=0;i<=n;i++){
     if(i<n&&o[i]!=null)continue;
-    if(i-s<5)for(let j=s;j<i;j++)o[j]=null;
+    if(i-s<3)for(let j=s;j<i;j++)o[j]=null;
     s=i+1;
   }
   for(let i=1;i<n;i++){
     if(o[i]!=null||o[i-1]==null)continue;
     let j=i;while(j<n&&o[j]==null)j++;
-    if(j<n&&j-i<=3&&Math.abs(o[j]-o[i-1])<2)for(let k=i;k<j;k++)o[k]=o[i-1]+(o[j]-o[i-1])*(k-i+1)/(j-i+1);
+    if(j<n&&j-i<=6&&Math.abs(o[j]-o[i-1])<3)for(let k=i;k<j;k++)o[k]=o[i-1]+(o[j]-o[i-1])*(k-i+1)/(j-i+1);
     i=j;
   }
   for(let r=0;r<2;r++){
