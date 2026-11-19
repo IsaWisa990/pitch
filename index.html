@@ -106,7 +106,7 @@ $("#bRef").onclick=async()=>{
 function stopRef(){
   const dur=(performance.now()-t0)/1000;state="idle";cancelAnimationFrame(raf);
   rec.onstop=async()=>{
-    ref={pts:pts.slice(),dur};try{ref.buf=await ctx.decodeAudioData(await new Blob(chunks,{type:rec.mimeType}).arrayBuffer())}catch(e){say("Enregistrement non décodable.");return}
+    ref={pts:clean(pts),dur};try{ref.buf=await ctx.decodeAudioData(await new Blob(chunks,{type:rec.mimeType}).arrayBuffer())}catch(e){say("Enregistrement non décodable.");return}
     $("#bSing").disabled=false;$("#bPlay").disabled=false;say("Référence enregistrée. Étape 2 : chantez par-dessus.");draw(dur);
   };
   rec.stop();$("#bRef").textContent="Refaire la référence";$("#bRef").className="main";
@@ -127,9 +127,46 @@ $("#bSing").onclick=async()=>{
 };
 function finish(){
   if(state!=="sing")return;
-  state="idle";cancelAnimationFrame(raf);srcs.forEach(s=>{try{s.stop()}catch(e){}});me=pts.slice();
+  state="idle";cancelAnimationFrame(raf);srcs.forEach(s=>{try{s.stop()}catch(e){}});me=clean(pts);
   $("#bSing").textContent="2 · Chanter par-dessus";$("#bSing").className="";$("#bRef").disabled=false;
   draw(ref.dur);say("Terminé.");score();
+}
+function clean(p){
+  const n=p.length,m=p.map(q=>q.m);
+  let prev=null,pi=-99;
+  for(let i=0;i<n;i++){
+    if(m[i]==null)continue;
+    if(prev!=null&&i-pi<=4){
+      const d=m[i]-prev;
+      if(Math.abs(d)>5){
+        const k=Math.round(d/12);
+        if(k&&Math.abs(d-12*k)<2.5)m[i]-=12*k;
+        else if(Math.abs(d)>7)continue;
+      }
+    }
+    prev=m[i];pi=i;
+  }
+  const o=m.slice();
+  for(let i=0;i<n;i++){
+    if(m[i]==null)continue;
+    const w=[];
+    for(let j=Math.max(0,i-3);j<=Math.min(n-1,i+3);j++)if(m[j]!=null)w.push(m[j]);
+    if(w.length<3){o[i]=null;continue}
+    w.sort((a,b)=>a-b);o[i]=w[w.length>>1];
+  }
+  let s=0;
+  for(let i=0;i<=n;i++){
+    if(i<n&&o[i]!=null)continue;
+    if(i-s<5)for(let j=s;j<i;j++)o[j]=null;
+    s=i+1;
+  }
+  for(let i=1;i<n;i++){
+    if(o[i]!=null||o[i-1]==null)continue;
+    let j=i;while(j<n&&o[j]==null)j++;
+    if(j<n&&j-i<=3&&Math.abs(o[j]-o[i-1])<2)for(let k=i;k<j;k++)o[k]=o[i-1]+(o[j]-o[i-1])*(k-i+1)/(j-i+1);
+    i=j;
+  }
+  return p.map((q,i)=>({t:q.t,m:o[i]}));
 }
 function grid(p,dur){
   const n=Math.ceil(dur/DT),a=new Array(n).fill(null);
@@ -171,7 +208,7 @@ function draw(t){
   const cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim();
   const src=state==="ref"?pts:(ref?ref.pts:[]);
   const all=src.concat(me,state==="sing"?pts:[]).filter(p=>p.m!=null).map(p=>p.m);
-  let lo=all.length?Math.min(...all)-3:55,hi=all.length?Math.max(...all)+3:75;
+  all.sort((a,b)=>a-b);let lo=all.length?all[Math.floor(all.length*0.02)]-3:55,hi=all.length?all[Math.ceil(all.length*0.98)-1]+3:75;
   if(hi-lo<14){const c=(hi+lo)/2;lo=c-7;hi=c+7}
   const live=state!=="idle",x0=live?Math.max(0,t-3.6):0,dur=live?12:(ref?ref.dur:10),pl=34;
   const X=s=>pl+(w-pl-4)*(s-x0)/dur,Y=m=>h-8-(h-16)*(m-lo)/(hi-lo);
@@ -191,10 +228,10 @@ function draw(t){
     }
     g.stroke();
   };
-  if(state==="ref")line(pts,col("--ref"),4);
+  if(state==="ref")line(clean(pts.slice(-600)),col("--ref"),4);
   else{
     if(ref)line(ref.pts,col("--ref"),5);
-    line(state==="sing"?pts:me,col("--me"),2.5);
+    line(state==="sing"?clean(pts.slice(-600)):me,col("--me"),2.5);
   }
 }
 $("#bImp").onclick=()=>{if(state==="idle")$("#fV").click()};
@@ -218,7 +255,7 @@ $("#fV").onchange=async e=>{
       out.push({t:(p+win/2)/sr,m:f0?69+12*Math.log2(f0/440):null});
       if(fr%200===199){say("Analyse de la piste… "+Math.round(100*p/n)+" %");await new Promise(r=>setTimeout(r))}
     }
-    ref={pts:out,dur:ab.duration,buf:ab};me=[];pts=[];
+    ref={pts:clean(out),dur:ab.duration,buf:ab};me=[];pts=[];
     $("#res").style.display="none";$("#detail").textContent="";
     $("#bSing").disabled=false;$("#bPlay").disabled=false;
     say("« "+f.name+" » importé. Étape 2 : chantez par-dessus.");draw(ref.dur);
