@@ -166,6 +166,16 @@ function clean(p){
     if(j<n&&j-i<=3&&Math.abs(o[j]-o[i-1])<2)for(let k=i;k<j;k++)o[k]=o[i-1]+(o[j]-o[i-1])*(k-i+1)/(j-i+1);
     i=j;
   }
+  for(let r=0;r<2;r++){
+    const a=o.slice();
+    for(let i=0;i<n;i++){
+      if(o[i]==null)continue;
+      let sum=0,c=0;
+      for(let j=Math.max(0,i-6);j<=Math.min(n-1,i+6);j++)if(o[j]!=null&&Math.abs(o[j]-o[i])<1.5){sum+=o[j];c++}
+      a[i]=sum/c;
+    }
+    for(let i=0;i<n;i++)o[i]=a[i];
+  }
   return p.map((q,i)=>({t:q.t,m:o[i]}));
 }
 function grid(p,dur){
