@@ -53,6 +53,7 @@ label{display:flex;gap:8px;align-items:center;font-size:.92rem;color:var(--mut)}
   <div><b id="rG">–</b><span>Global</span></div>
 </div>
 <p class="sub" id="detail" style="margin-top:10px"></p>
+<p class="sub" style="font-size:.75rem;opacity:.7">Version du 19 novembre 2026 · lissage vibrato + octaves</p>
 <script>
 const $=s=>document.querySelector(s), DT=0.05, W=2;
 const NOTES=[["Do",0],["Ré",2],["Mi",4],["Fa",5],["Sol",7],["La",9],["Si",11]];
@@ -133,6 +134,21 @@ function finish(){
 }
 function clean(p){
   const n=p.length,m=p.map(q=>q.m);
+  for(let r=0;r<2;r++){
+    const f=m.slice();
+    for(let i=0;i<n;i++){
+      if(m[i]==null)continue;
+      const w=[];
+      for(let j=Math.max(0,i-60);j<=Math.min(n-1,i+60);j++)if(m[j]!=null)w.push(m[j]);
+      if(w.length<8)continue;
+      w.sort((a,b)=>a-b);const med=w[w.length>>1];
+      if(Math.abs(m[i]-med)<=4)continue;
+      let best=null,bd=3;
+      for(const k of [-24,-19,-12,12,19,24]){const d=Math.abs(m[i]+k-med);if(d<bd){bd=d;best=k}}
+      if(best!=null)f[i]=m[i]+best;
+    }
+    for(let i=0;i<n;i++)m[i]=f[i];
+  }
   let prev=null,pi=-99;
   for(let i=0;i<n;i++){
     if(m[i]==null)continue;
