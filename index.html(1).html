@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Justesse vocale</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--bd:#e2e1da;--ref:#3b6fd4;--me:#e8742a;--grid:#ececE4;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17171a;--fg:#f0efe9;--mut:#a09f98;--card:#222226;--bd:#38383d;--ref:#6f9bf0;--me:#f59a5a;--grid:#2c2c31;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17171a;--fg:#f0efe9;--mut:#a09f98;--card:#222226;--bd:#38383d;--ref:#6f9bf0;--me:#f59a5a;--grid:#2c2c31;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;max-width:1100px;margin-inline:auto}
+h1{font-size:1.4rem;margin:.2em 0 .1em}
+p.sub{color:var(--mut);margin:0 0 14px;font-size:.92rem}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:12px}
+canvas{width:100%;height:min(58vh,440px);min-height:300px;display:block;border-radius:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+button{flex:1 1 180px;padding:12px 14px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--fg);font:inherit;font-weight:600;cursor:pointer}
+button.main{background:var(--ref);color:#fff;border-color:transparent}
+button.rec{background:#d64545;color:#fff;border-color:transparent}
+button:disabled{opacity:.4;cursor:default}
+label{display:flex;gap:8px;align-items:center;font-size:.92rem;color:var(--mut)}
+.leg{display:flex;gap:16px;font-size:.85rem;color:var(--mut);margin-top:6px}
+.leg i{display:inline-block;width:18px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle}
+#status{min-height:1.4em;font-size:.92rem;color:var(--mut);margin:4px 0 0}
+.res{display:none;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
+.res div{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px 4px}
+.res b{display:block;font-size:2rem;line-height:1.1}
+.res span{font-size:.8rem;color:var(--mut)}
+</style></head><body>
+<h1>🎤 Justesse vocale</h1>
+<p class="sub">Enregistrez une référence, puis chantez par-dessus. Utilisez un casque pour éviter que le micro capte la référence.</p>
+<div class="card">
+  <canvas id="cv"></canvas>
+  <div class="leg"><span><i style="background:var(--ref)"></i>Référence</span><span><i style="background:var(--me)"></i>Ma voix</span></div>
+  <p id="status">Étape 1 : enregistrez la chanson de référence.</p>
+</div>
+<div class="row">
+  <button id="bRef" class="main">1 · Enregistrer la référence</button>
+  <button id="bSing" disabled>2 · Chanter par-dessus</button>
+</div>
+<div class="row">
+  <button id="bImp">📁 Importer une piste voix</button>
+  <button id="bPlay" disabled>＋ Piste instrumentale (optionnelle)</button>
+</div>
+<input type="file" id="fV" hidden><input type="file" id="fP" hidden>
+<div class="row" style="gap:16px">
+  <label style="flex:1 1 200px">Voix guide <input type="range" id="vV" min="0" max="100" value="100" style="flex:1"></label>
+  <label style="flex:1 1 200px">Instruments <input type="range" id="vI" min="0" max="100" value="100" style="flex:1"></label>
+</div>
+<label><input type="checkbox" id="free"> Ignorer la tonalité (je chante plus haut ou plus bas)</label>
+<div class="res" id="res" style="margin-top:12px">
+  <div><b id="rP">–</b><span>Justesse (pitch)</span></div>
+  <div><b id="rT">–</b><span>Timing</span></div>
+  <div><b id="rG">–</b><span>Global</span></div>
+</div>
+<p class="sub" id="detail" style="margin-top:10px"></p>
+<script>
+const $=s=>document.querySelector(s), DT=0.05, W=2;
+const NOTES=[["Do",0],["Ré",2],["Mi",4],["Fa",5],["Sol",7],["La",9],["Si",11]];
+let ctx,stream,analyser,rec,chunks=[],ref=null,me=[],pts=[],state="idle",t0=0,last=0,gV=null,gI=null,srcs=[],raf=0;
+const buf=new Float32Array(4096);
+
+function yin(b,sr,thr=0.01){
+  const N=b.length,H=N>>1;let r=0;
+  for(let i=0;i<N;i++)r+=b[i]*b[i];
+  if(Math.sqrt(r/N)<thr)return null;
+  const lo=Math.floor(sr/1000),hi=Math.min(H-1,Math.floor(sr/70)),c=new Float32Array(hi+2);
+  let run=0;c[0]=1;
+  for(let t=1;t<=hi+1;t++){let s=0;for(let i=0;i<H;i++){const x=b[i]-b[i+t];s+=x*x}run+=s;c[t]=s*t/run}
+  for(let t=lo;t<hi;t++){
+    if(c[t]<0.15){
+      while(t+1<hi&&c[t+1]<c[t])t++;
+      const a=c[t-1],m=c[t],e=c[t+1],d=a-2*m+e;
+      return sr/(t+(d?0.5*(a-e)/d:0));
+    }
+  }
+  return null;
+}
+async function mic(){
+  if(stream)return;
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();
+  analyser=ctx.createAnalyser();analyser.fftSize=4096;
+  ctx.createMediaStreamSource(stream).connect(analyser);
+}
+function say(s){$("#status").textContent=s}
+function tick(now){
+  if(state==="idle")return;
+  const t=(performance.now()-t0)/1000;
+  if(now-last>=25){
+    last=now;analyser.getFloatTimeDomainData(buf);
+    const f=yin(buf,ctx.sampleRate);
+    pts.push({t,m:f?69+12*Math.log2(f/440):null});
+  }
+  draw(t);raf=requestAnimationFrame(tick);
+}
+$("#bRef").onclick=async()=>{
+  if(state==="ref"){stopRef();return}
+  if(state!=="idle")return;
+  try{await mic();await ctx.resume()}catch(e){say("Micro inaccessible ("+(e&&e.name||e)+"). Ouvrez la page directement dans Safari, hors de l’app Claude.");return}
+  chunks=[];pts=[];me=[];$("#res").style.display="none";$("#detail").textContent="";
+  rec=new MediaRecorder(stream);rec.ondataavailable=e=>chunks.push(e.data);rec.start();
+  state="ref";t0=performance.now();last=0;
+  $("#bRef").textContent="■ Arrêter";$("#bRef").className="rec";$("#bSing").disabled=true;
+  say("Enregistrement de la référence… chantez la chanson.");raf=requestAnimationFrame(tick);
+};
+function stopRef(){
+  const dur=(performance.now()-t0)/1000;state="idle";cancelAnimationFrame(raf);
+  rec.onstop=async()=>{
+    ref={pts:pts.slice(),dur};try{ref.buf=await ctx.decodeAudioData(await new Blob(chunks,{type:rec.mimeType}).arrayBuffer())}catch(e){say("Enregistrement non décodable.");return}
+    $("#bSing").disabled=false;$("#bPlay").disabled=false;say("Référence enregistrée. Étape 2 : chantez par-dessus.");draw(dur);
+  };
+  rec.stop();$("#bRef").textContent="Refaire la référence";$("#bRef").className="main";
+}
+$("#bSing").onclick=async()=>{
+  if(state==="sing"){finish();return}
+  if(state!=="idle"||!ref)return;
+  if(!stream){try{await mic()}catch(e){say("Micro inaccessible ("+(e&&e.name||e)+"). Ouvrez la page directement dans Safari, hors de l’app Claude.");return}say("Micro activé. Appuyez de nouveau sur « 2 · Chanter par-dessus » pour démarrer.");return}
+  const rs=ctx.resume();
+  await Promise.race([rs,new Promise(r=>setTimeout(r,800))]);if(ctx.state!=="running"){say("Audio bloqué par le navigateur : touchez l’écran puis réessayez.");return}pts=[];me=[];$("#res").style.display="none";
+  srcs=[];gV=ctx.createGain();gI=ctx.createGain();gV.connect(ctx.destination);gI.connect(ctx.destination);const mk=(b,g)=>{const s=ctx.createBufferSource();s.buffer=b;s.connect(g);srcs.push(s);return s},sv=mk(ref.buf,gV),si=ref.instBuf?mk(ref.instBuf,gI):null;
+  setVol();let ended=0;const need=si?2:1,oe=()=>{if(++ended>=need)finish()};
+  sv.onended=oe;if(si)si.onended=oe;
+  try{const T=ctx.currentTime+0.05;sv.start(T);if(si)si.start(T)}catch(e){say("Lecture impossible.");return}
+  state="sing";t0=performance.now()+50;last=0;
+  $("#bSing").textContent="■ Terminer";$("#bSing").className="rec";$("#bRef").disabled=true;
+  say("Chantez en même temps que la référence…");raf=requestAnimationFrame(tick);
+};
+function finish(){
+  if(state!=="sing")return;
+  state="idle";cancelAnimationFrame(raf);srcs.forEach(s=>{try{s.stop()}catch(e){}});me=pts.slice();
+  $("#bSing").textContent="2 · Chanter par-dessus";$("#bSing").className="";$("#bRef").disabled=false;
+  draw(ref.dur);say("Terminé.");score();
+}
+function grid(p,dur){
+  const n=Math.ceil(dur/DT),a=new Array(n).fill(null);
+  for(const q of p){const i=Math.round(q.t/DT);if(i<n)a[i]=q.m}
+  return a;
+}
+const fold=x=>((x+6)%12+12)%12-6;
+function score(){
+  const R=grid(ref.pts,ref.dur),U=grid(me,ref.dur),n=R.length;
+  const near=(i,f)=>{for(let j=Math.max(0,i-W);j<=Math.min(n-1,i+W);j++)if(U[j]!=null)f(j)};
+  const near2=i=>{for(let j=Math.max(0,i-W);j<=Math.min(n-1,i+W);j++)if(R[j]!=null)return true;return false};
+  let off=0;
+  if($("#free").checked){
+    const d=[];for(let i=0;i<n;i++)if(R[i]!=null&&U[i]!=null)d.push(fold(U[i]-R[i]));
+    d.sort((a,b)=>a-b);if(d.length)off=d[d.length>>1];
+  }
+  let rv=0,rHit=0,uv=0,uHit=0,pc=0,pOk=0,devSum=0;
+  for(let i=0;i<n;i++){
+    if(R[i]!=null){
+      rv++;let best=null;
+      near(i,j=>{const d=Math.abs(fold(U[j]-R[i]-off));if(best==null||d<best)best=d});
+      if(best!=null){rHit++;pc++;devSum+=best;if(best<=0.5)pOk++}
+    }
+    if(U[i]!=null){uv++;if(near2(i))uHit++}
+  }
+  if(!rv){say("Aucune voix détectée dans la référence.");return}
+  const timing=Math.round(50*(rHit/rv+(uv?uHit/uv:0)));
+  const pitch=pc?Math.round(100*pOk/pc):0;
+  $("#rP").textContent=pitch+" %";$("#rT").textContent=timing+" %";
+  $("#rG").textContent=Math.round((pitch+timing)/2)+" %";$("#res").style.display="grid";
+  $("#detail").textContent="Une note est juste à ±50 centièmes de ton (un demi-demi-ton), avec une tolérance de ±"+Math.round(W*DT*1000)+" ms. "
+    +"Écart moyen : "+(pc?Math.round(100*devSum/pc):0)+" centièmes. Le timing mesure si vous chantez quand la référence chante, et inversement."
+    +($("#free").checked?" Tonalité ignorée (décalage de "+off.toFixed(1)+" demi-tons).":"");
+}
+function draw(t){
+  const cv=$("#cv"),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  if(cv.width!==w*dpr){cv.width=w*dpr;cv.height=h*dpr}
+  const g=cv.getContext("2d");g.restore();g.setTransform(dpr,0,0,dpr,0,0);g.save();g.clearRect(0,0,w,h);
+  const cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim();
+  const src=state==="ref"?pts:(ref?ref.pts:[]);
+  const all=src.concat(me,state==="sing"?pts:[]).filter(p=>p.m!=null).map(p=>p.m);
+  let lo=all.length?Math.min(...all)-3:55,hi=all.length?Math.max(...all)+3:75;
+  if(hi-lo<14){const c=(hi+lo)/2;lo=c-7;hi=c+7}
+  const live=state!=="idle",x0=live?Math.max(0,t-3.6):0,dur=live?12:(ref?ref.dur:10),pl=34;
+  const X=s=>pl+(w-pl-4)*(s-x0)/dur,Y=m=>h-8-(h-16)*(m-lo)/(hi-lo);
+  g.font="11px system-ui";g.textBaseline="middle";
+  for(let m=Math.ceil(lo);m<=hi;m++){
+    const nn=NOTES.find(x=>x[1]===((m%12)+12)%12);if(!nn)continue;
+    g.strokeStyle=col("--grid");g.beginPath();g.moveTo(pl,Y(m));g.lineTo(w,Y(m));g.stroke();
+    g.fillStyle=col("--mut");g.fillText(nn[0],2,Y(m));
+  }
+  g.beginPath();g.rect(pl,0,w-pl,h);g.clip();
+  if(live){g.strokeStyle=col("--mut");g.lineWidth=1;g.beginPath();g.moveTo(X(t),0);g.lineTo(X(t),h);g.stroke()}
+  const line=(p,c,lw)=>{
+    g.strokeStyle=c;g.lineWidth=lw;g.lineCap="round";g.lineJoin="round";let on=false;g.beginPath();
+    for(const q of p){
+      if(q.m==null){on=false;continue}
+      if(!on){g.moveTo(X(q.t),Y(q.m));on=true}else g.lineTo(X(q.t),Y(q.m));
+    }
+    g.stroke();
+  };
+  if(state==="ref")line(pts,col("--ref"),4);
+  else{
+    if(ref)line(ref.pts,col("--ref"),5);
+    line(state==="sing"?pts:me,col("--me"),2.5);
+  }
+}
+$("#bImp").onclick=()=>{if(state==="idle")$("#fV").click()};
+$("#bPlay").onclick=()=>$("#fP").click();
+$("#fV").onchange=async e=>{
+  const f=e.target.files[0];e.target.value="";
+  if(!f||state!=="idle")return;
+  try{
+    say("Décodage du fichier…");
+    ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();
+    const ab=await ctx.decodeAudioData(await f.arrayBuffer());
+    const k=Math.max(1,Math.round(ab.sampleRate/11025)),sr=ab.sampleRate/k,n=Math.floor(ab.length/k);
+    const mono=new Float32Array(n),chs=[];
+    for(let c=0;c<ab.numberOfChannels;c++)chs.push(ab.getChannelData(c));
+    for(let i=0;i<n;i++){let s=0;for(const ch of chs)for(let j=0;j<k;j++)s+=ch[i*k+j];mono[i]=s/(k*chs.length)}
+    const out=[],hop=Math.round(sr*0.025),win=1024,b=new Float32Array(win);
+    let fr=0;
+    for(let p=0;p+win<=n;p+=hop,fr++){
+      b.set(mono.subarray(p,p+win));
+      const f0=yin(b,sr,0.008);
+      out.push({t:(p+win/2)/sr,m:f0?69+12*Math.log2(f0/440):null});
+      if(fr%200===199){say("Analyse de la piste… "+Math.round(100*p/n)+" %");await new Promise(r=>setTimeout(r))}
+    }
+    ref={pts:out,dur:ab.duration,buf:ab};me=[];pts=[];
+    $("#res").style.display="none";$("#detail").textContent="";
+    $("#bSing").disabled=false;$("#bPlay").disabled=false;
+    say("« "+f.name+" » importé. Étape 2 : chantez par-dessus.");draw(ref.dur);
+  }catch(err){say("Fichier illisible ou format non pris en charge.")}
+};
+$("#fP").onchange=async e=>{
+  const f=e.target.files[0];e.target.value="";if(!f||!ref)return;
+  try{ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();ref.instBuf=await ctx.decodeAudioData(await f.arrayBuffer())}catch(err){say("Piste instrumentale illisible.");return}
+  say("Piste instrumentale : « "+f.name+" ». Elle sera jouée avec la voix guide ; seule la piste voix est analysée.");
+};
+function setVol(){if(gV)gV.gain.value=$("#vV").value/100;if(gI)gI.gain.value=$("#vI").value/100}
+$("#vV").oninput=$("#vI").oninput=setVol;
+$("#free").onchange=()=>{if(me.length&&ref)score()};
+window.addEventListener("resize",()=>{if(state==="idle")draw(ref?ref.dur:0)});
+window.addEventListener("error",e=>say("Erreur : "+e.message));window.addEventListener("unhandledrejection",e=>say("Erreur : "+(e.reason&&e.reason.message||e.reason)));draw(0);
+</script></body></html>
